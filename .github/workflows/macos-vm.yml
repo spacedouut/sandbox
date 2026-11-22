@@ -37,7 +37,7 @@ concurrency:
 jobs:
   vm:
     runs-on: ${{ inputs.runner }}
-    timeout-minutes: ${{ inputs.minutes + 15 }}
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
 
