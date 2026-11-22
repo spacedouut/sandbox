@@ -62,6 +62,15 @@ open vnc://<100.x.y.z>:5900   # legacy VNC password or vncuser creds are in the 
   `resolution` input uses `displayplacer`.
 - `CGVirtualDisplay` (private API à la BetterDisplay) fails to instantiate —
   likely entitlement-gated — so a second virtual display isn't a path.
+- **But the media engine is real**: `pci106b,1a03` is a virtio function driven by
+  `AppleVideoToolboxParavirtualization` — guest VT calls execute on the *host*'s
+  AVE hardware. Verified: H.264 enc ~370fps / dec ~590fps @720p, plus
+  `IsHardwareAccelerated` HEVC and even JPEG (`ajpeg`) encoders. There's also
+  `pci106b,1a08` = `AvpFairPlayDriver` (FairPlay DRM passthrough).
+  Encode/decode is a job-queue interface so it's trivially virtualized; the 3D
+  GPU is deeply stateful, which is why it's only a stub.
+- The `pci106b,1a0x` family is the standard Apple Virtualization.framework
+  device set (block, platform, video, USB, fairplay, guest-agent messenger).
 - VNC password is truncated to 8 chars by the legacy auth scheme.
 - ToS note: Actions on public repos is free but meant for "production, testing,
   deployment, or publication" of software. Keep it honest-ish.
