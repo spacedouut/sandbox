@@ -53,7 +53,11 @@ open vnc://<100.x.y.z>:5900   # legacy VNC password or vncuser creds are in the 
   desktop. `runner`'s password can't be changed (SecureToken) — if the console
   ever shows a lock screen, `vncuser`'s password is yours to set via `dscl`.
 - The runner is a `VirtualMac2,1` (Apple Virtualization.framework, Anka-hosted),
-  3 cores, ~7 GB RAM, no `AppleDisplay` in IOKit, black stock wallpaper.
+  3 cores, ~7 GB RAM, black stock wallpaper.
+- **No real GPU**: no `AGX` kexts, no `AppleDisplay`, the only display is a
+  legacy VGA-class PCI framebuffer. `Metal` sees an "Apple Paravirtual device"
+  stub (~15 MB VRAM, zero feature families, ~CPU-speed compute). All
+  compositing is software — that's why VNC is slow.
 - The console framebuffer only exposes a few modes (≤1344x1008) —
   `resolution` input uses `displayplacer`.
 - `CGVirtualDisplay` (private API à la BetterDisplay) fails to instantiate —

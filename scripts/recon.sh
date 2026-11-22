@@ -42,6 +42,21 @@ sec "Network"
 ifconfig | grep -E '^\w+:|inet ' | grep -v inet6 | head -12
 echo "egress ip: $(curl -fsS --max-time 10 https://ifconfig.me 2>/dev/null || echo n/a)"
 
+sec "GPU reality check"
+echo "displays seen by system_profiler: $(system_profiler SPDisplaysDataType 2>/dev/null | grep -c . ) lines"
+echo "AppleDisplay objects:   $(ioreg -c AppleDisplay 2>/dev/null | grep -c '+-o' )"
+echo "IOAccelerator objects:  $(ioreg -c IOAccelerator 2>/dev/null | grep -c '+-o' )"
+echo "AGX kexts (real GPUs):  $(kmutil showloaded 2>/dev/null | grep -c AGX )"
+echo "paravirt GPU kexts:     $(kmutil showloaded 2>/dev/null | grep -c Paravirt )"
+cat > /tmp/gpu_probe.swift <<'EOF'
+import Metal
+if let d = MTLCreateSystemDefaultDevice() {
+  print("metal device:           \(d.name)")
+  print("  feature families:     apple7=\(d.supportsFamily(.apple7)) apple8=\(d.supportsFamily(.apple8)) apple9=\(d.supportsFamily(.apple9))")
+} else { print("metal device:           NONE") }
+EOF
+sudo swift /tmp/gpu_probe.swift 2>/dev/null || true
+
 sec "Virtualization probes"
 echo "kern.hv_support:      $(sysctl -n kern.hv_support 2>/dev/null || echo '?')"
 echo "kern.vmos (guest):    $(sysctl -n kern.hv_vmm_present 2>/dev/null || echo '?')"
