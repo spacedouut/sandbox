@@ -1,0 +1,72 @@
+name: macos-vm
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: "macOS runner label"
+        type: choice
+        required: true
+        default: macos-15
+        options:
+          - macos-15
+          - macos-14
+          - macos-26
+          - macos-latest
+      minutes:
+        description: "Keep-alive minutes (job cap ~355)"
+        type: number
+        required: true
+        default: 60
+      enable_ssh:
+        description: "Enable SSH over Tailscale"
+        type: boolean
+        default: true
+      enable_vnc:
+        description: "Enable VNC / Screen Sharing"
+        type: boolean
+        default: true
+      benchmark:
+        description: "Run throughput benchmarks"
+        type: boolean
+        default: false
+
+concurrency:
+  group: macos-vm-${{ inputs.runner }}
+
+jobs:
+  vm:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.minutes + 15 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Recon — what did we get?
+        run: bash scripts/recon.sh
+
+      - name: Remote access (tailscale + ssh + vnc)
+        env:
+          TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+          VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
+          VNC_USER_PASSWORD: ${{ secrets.VNC_USER_PASSWORD }}
+          ENABLE_SSH: ${{ inputs.enable_ssh }}
+          ENABLE_VNC: ${{ inputs.enable_vnc }}
+          TS_HOSTNAME: gh-macos-${{ github.run_id }}
+        run: bash scripts/setup-access.sh
+
+      - name: Benchmarks
+        if: inputs.benchmark
+        run: bash scripts/bench.sh
+
+      - name: Keep alive
+        env:
+          MINUTES: ${{ inputs.minutes }}
+        run: |
+          END=$((SECONDS + MINUTES * 60))
+          while [ $SECONDS -lt $END ]; do
+            LEFT=$(( (END - SECONDS) / 60 ))
+            TS=$(sudo tailscale ip -4 2>/dev/null | head -1 || echo "offline")
+            echo "[$(date +%H:%M:%S)] alive — ${LEFT}m left — tailscale: $TS"
+            sudo tailscale status 2>/dev/null | head -4 | tail -3 || true
+            sleep 60
+          done
