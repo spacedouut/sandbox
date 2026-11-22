@@ -26,6 +26,16 @@ on:
         description: "Enable VNC / Screen Sharing"
         type: boolean
         default: true
+      resolution:
+        description: "Display resolution (empty = stock 1024x768)"
+        type: choice
+        required: true
+        default: "1920x1080"
+        options:
+          - "1920x1080"
+          - "1280x720"
+          - "1024x768"
+          - ""
       benchmark:
         description: "Run throughput benchmarks"
         type: boolean
@@ -51,6 +61,7 @@ jobs:
           VNC_USER_PASSWORD: ${{ secrets.VNC_USER_PASSWORD }}
           ENABLE_SSH: ${{ inputs.enable_ssh }}
           ENABLE_VNC: ${{ inputs.enable_vnc }}
+          VNC_RESOLUTION: ${{ inputs.resolution }}
           TS_HOSTNAME: gh-macos-${{ github.run_id }}
         run: bash scripts/setup-access.sh
 

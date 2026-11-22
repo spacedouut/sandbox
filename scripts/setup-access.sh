@@ -13,6 +13,7 @@
 #   ENABLE_VNC        - "true"/"false". Default true.
 #   VNC_PASSWORD      - legacy VNC password (8 chars max effective). Random if unset.
 #   VNC_USER_PASSWORD - password for the created `vncuser` account. Random if unset.
+#   VNC_RESOLUTION    - displayplacer resolution, e.g. 1920x1080. Empty = leave as-is.
 set -uo pipefail
 
 ENABLE_SSH="${ENABLE_SSH:-true}"
@@ -99,6 +100,40 @@ if [ "$ENABLE_VNC" = "true" ]; then
   echo "$VNC_PASSWORD" | perl -we 'BEGIN { @k = unpack "C*", pack "H*", "1734516E8BA8C5E2FF1C39567390ADCA"}; $_ = <>; chomp; s/^(.{8}).*/$1/; @p = unpack "C*", $_; foreach (@k) { printf "%02X", $_ ^ (shift @p || 0) }; print "\n"' \
     | sudo tee /Library/Preferences/com.apple.VNCSettings.txt >/dev/null
   sudo "$KICKSTART" -restart -agent -console 2>&1 | tail -2 || true
+
+  # --- TCC grants (SIP is disabled on GH runners) -------------------------
+  # Without kTCCServiceScreenCapture, screensharingd only serves the menu bar
+  # + wallpaper (no app windows) and platform binaries can never prompt, so
+  # the *only* fix is a direct TCC.db grant. PostEvent/Accessibility are for
+  # input control; sshd-keygen-wrapper is the "responsible binary" for
+  # anything spawned over SSH.
+  sec "TCC grants for screen recording + input"
+  TCCDB="/Library/Application Support/com.apple.TCC/TCC.db"
+  TCC_CLIENTS=(
+    "/System/Library/CoreServices/RemoteManagement/screensharingd.bundle/Contents/MacOS/screensharingd"
+    "/System/Library/CoreServices/RemoteManagement/ScreensharingAgent.bundle/Contents/MacOS/ScreensharingAgent"
+    "/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/MacOS/ARDAgent"
+    "/usr/libexec/sshd-keygen-wrapper"
+    "/usr/sbin/screencapture"
+    "/opt/homebrew/bin/cliclick"
+  )
+  TCC_SERVICES=(kTCCServiceScreenCapture kTCCServicePostEvent kTCCServiceAccessibility kTCCServiceSystemPolicyAllFiles kTCCServiceDeveloperTool)
+  for c in "${TCC_CLIENTS[@]}"; do
+    for s in "${TCC_SERVICES[@]}"; do
+      sudo sqlite3 "$TCCDB" "INSERT OR REPLACE INTO access (service,client,client_type,auth_value,auth_reason,auth_version,csreq,policy_id,indirect_object_identifier_type,indirect_object_identifier,indirect_object_code_identity,flags,last_modified,pid,pid_version,boot_uuid,last_reminded) VALUES ('$s','$c',1,2,0,1,NULL,NULL,0,'UNUSED',NULL,0,CAST(strftime('%s','now') AS INTEGER),NULL,NULL,'UNUSED',CAST(strftime('%s','now') AS INTEGER));"
+    done
+  done
+  sudo killall tccd 2>/dev/null || true
+  sudo killall screensharingd 2>/dev/null || true
+  sudo "$KICKSTART" -restart -agent -console 2>&1 | tail -1 || true
+
+  # Optional resolution bump via displayplacer (stock is 1024x768).
+  if [ -n "${VNC_RESOLUTION:-}" ]; then
+    brew list displayplacer &>/dev/null || brew install displayplacer >/dev/null 2>&1
+    brew list cliclick &>/dev/null || brew install cliclick >/dev/null 2>&1
+    SID=$(displayplacer list | awk '/Persistent screen id/{print $4; exit}')
+    [ -n "$SID" ] && displayplacer "id:$SID res:$VNC_RESOLUTION hz:60 color_depth:7 scaling:off origin:(0,0) degree:0" 2>&1 | tail -1
+  fi
 
   echo "VNC legacy password : $VNC_PASSWORD"
   echo "vncuser password    : $VNC_USER_PASSWORD"

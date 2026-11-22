@@ -42,11 +42,22 @@ open vnc://<100.x.y.z>:5900   # legacy VNC password or vncuser creds are in the 
 
 ## Notes
 
+- **VNC black screen fix**: `screensharingd` doesn't have the
+  *Screen & System Audio Recording* TCC grant on these images, and as a
+  platform binary it can never prompt — so it serves only the menu bar +
+  wallpaper (i.e. a black screen). SIP is disabled on GH runners, so the
+  workflow writes grants straight into `TCC.db` (`screensharingd`,
+  `ScreensharingAgent`, `ARDAgent`, plus `sshd-keygen-wrapper` which is the
+  TCC "responsible binary" for anything spawned over SSH, and `screencapture`).
 - The `runner` user is auto-logged-in on the console, so VNC shows a live
-  desktop, not a lock screen.
-- `runner` has passwordless sudo. SecureToken means you can't reset its
-  password, hence `vncuser`.
+  desktop. `runner`'s password can't be changed (SecureToken) — if the console
+  ever shows a lock screen, `vncuser`'s password is yours to set via `dscl`.
+- The runner is a `VirtualMac2,1` (Apple Virtualization.framework, Anka-hosted),
+  3 cores, ~7 GB RAM, no `AppleDisplay` in IOKit, black stock wallpaper.
+- The console framebuffer only exposes a few modes (≤1344x1008) —
+  `resolution` input uses `displayplacer`.
+- `CGVirtualDisplay` (private API à la BetterDisplay) fails to instantiate —
+  likely entitlement-gated — so a second virtual display isn't a path.
 - VNC password is truncated to 8 chars by the legacy auth scheme.
-- macOS VMs on GH runners are themselves VMs — no nested Hypervisor.framework.
 - ToS note: Actions on public repos is free but meant for "production, testing,
   deployment, or publication" of software. Keep it honest-ish.
