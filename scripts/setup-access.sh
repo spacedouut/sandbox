@@ -43,11 +43,15 @@ if [ -n "${TS_AUTHKEY:-}" ]; then
 else
   echo "No TS_AUTHKEY — starting interactive login. Watch for the URL below."
   sudo nohup tailscale up --hostname "$TS_HOSTNAME" >/tmp/tsup.log 2>&1 &
+  LOGIN_URL=""
   for i in $(seq 1 15); do
-    grep -o 'https://login.tailscale.com/[a-zA-Z0-9/?&=_-]*' /tmp/tsup.log 2>/dev/null | head -1 && break
+    LOGIN_URL=$(grep -o 'https://login.tailscale.com/[a-zA-Z0-9/?&=_-]*' /tmp/tsup.log 2>/dev/null | head -1)
+    [ -n "$LOGIN_URL" ] && break
     sleep 1
   done
+  echo ">>> $LOGIN_URL <<<"
   echo ">>> Open the URL above on any device to add this runner to your tailnet <<<"
+  [ -n "$LOGIN_URL" ] && echo "## Tailscale login: $LOGIN_URL" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 fi
 sleep 2
 TS_IP="$(sudo tailscale ip -4 2>/dev/null | head -1 || true)"
