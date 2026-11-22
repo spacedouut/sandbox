@@ -109,18 +109,26 @@ if [ "$ENABLE_VNC" = "true" ]; then
   # anything spawned over SSH.
   sec "TCC grants for screen recording + input"
   TCCDB="/Library/Application Support/com.apple.TCC/TCC.db"
+  # client_type 1 = path, 0 = bundle id — grant both forms; the "responsible
+  # binary" for ssh-spawned processes is sshd-keygen-wrapper but the prompt
+  # surfaces as com.apple.sshd-session, so cover both identities.
   TCC_CLIENTS=(
     "/System/Library/CoreServices/RemoteManagement/screensharingd.bundle/Contents/MacOS/screensharingd"
     "/System/Library/CoreServices/RemoteManagement/ScreensharingAgent.bundle/Contents/MacOS/ScreensharingAgent"
     "/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/MacOS/ARDAgent"
+    "com.apple.screensharing.daemon:0"
+    "com.apple.screensharing.agent:0"
+    "com.apple.sshd-session:0"
     "/usr/libexec/sshd-keygen-wrapper"
     "/usr/sbin/screencapture"
     "/opt/homebrew/bin/cliclick"
   )
   TCC_SERVICES=(kTCCServiceScreenCapture kTCCServicePostEvent kTCCServiceAccessibility kTCCServiceSystemPolicyAllFiles kTCCServiceDeveloperTool)
   for c in "${TCC_CLIENTS[@]}"; do
+    ctype=1
+    [[ "$c" == *:0 ]] && { ctype=0; c="${c%:0}"; }
     for s in "${TCC_SERVICES[@]}"; do
-      sudo sqlite3 "$TCCDB" "INSERT OR REPLACE INTO access (service,client,client_type,auth_value,auth_reason,auth_version,csreq,policy_id,indirect_object_identifier_type,indirect_object_identifier,indirect_object_code_identity,flags,last_modified,pid,pid_version,boot_uuid,last_reminded) VALUES ('$s','$c',1,2,0,1,NULL,NULL,0,'UNUSED',NULL,0,CAST(strftime('%s','now') AS INTEGER),NULL,NULL,'UNUSED',CAST(strftime('%s','now') AS INTEGER));"
+      sudo sqlite3 "$TCCDB" "INSERT OR REPLACE INTO access (service,client,client_type,auth_value,auth_reason,auth_version,csreq,policy_id,indirect_object_identifier_type,indirect_object_identifier,indirect_object_code_identity,flags,last_modified,pid,pid_version,boot_uuid,last_reminded) VALUES ('$s','$c',$ctype,2,0,1,NULL,NULL,0,'UNUSED',NULL,0,CAST(strftime('%s','now') AS INTEGER),NULL,NULL,'UNUSED',CAST(strftime('%s','now') AS INTEGER));"
     done
   done
   sudo killall tccd 2>/dev/null || true
