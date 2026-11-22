@@ -11,13 +11,18 @@
 #   EXTRA_SSH_KEYS    - literal pubkey line(s) appended to authorized_keys. Optional.
 #   ENABLE_SSH        - "true"/"false". Default true.
 #   ENABLE_VNC        - "true"/"false". Default true.
+#   ENABLE_SUNSHINE   - "true"/"false". Default true. Moonlight/GameStream host
+#                       (VideoToolbox hardware H.264/HEVC) — far faster than VNC.
 #   VNC_PASSWORD      - legacy VNC password (8 chars max effective). Random if unset.
 #   VNC_USER_PASSWORD - password for the created `vncuser` account. Random if unset.
 #   VNC_RESOLUTION    - displayplacer resolution, e.g. 1920x1080. Empty = leave as-is.
+#   SUNSHINE_WEB_USER     - Sunshine web UI username. Default: admin
+#   SUNSHINE_WEB_PASSWORD - Sunshine web UI password. Default: sunshine
 set -uo pipefail
 
 ENABLE_SSH="${ENABLE_SSH:-true}"
 ENABLE_VNC="${ENABLE_VNC:-true}"
+ENABLE_SUNSHINE="${ENABLE_SUNSHINE:-true}"
 TS_HOSTNAME="${TS_HOSTNAME:-gh-macos-${GITHUB_RUN_ID:-local}}"
 SSH_KEYS_URL="${SSH_KEYS_URL:-https://github.com/spacedouut.keys}"
 KICKSTART=/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart
@@ -147,6 +152,93 @@ if [ "$ENABLE_VNC" = "true" ]; then
   echo "vncuser password    : $VNC_USER_PASSWORD"
 fi
 
+if [ "$ENABLE_SUNSHINE" = "true" ]; then
+  sec "Sunshine (Moonlight host, hardware VideoToolbox encode)"
+
+  brew tap | grep -q lizardbyte/homebrew || { brew trust lizardbyte/homebrew; brew tap LizardByte/homebrew; }
+  brew list sunshine &>/dev/null || brew install sunshine
+
+  # Stream a dedicated GUI user, not `runner` — keeps the CI identity
+  # (GitHub token, SSH keys) off the streamed desktop. Sunshine needs a real
+  # Aqua session to capture; fall back to whoever owns the console.
+  SUN_USER=vncuser
+  SUN_UID=1001
+  if ! sudo launchctl print "gui/$SUN_UID" &>/dev/null; then
+    SUN_UID=$(stat -f %u /dev/console)
+    SUN_USER=$(id -un "$SUN_UID")
+    echo "NOTE: no gui/1001 session — running Sunshine under console user $SUN_USER"
+  fi
+  SUN_HOME=$(dscl . -read "/Users/$SUN_USER" NFSHomeDirectory | awk '{print $2}')
+  SUN_CONF="$SUN_HOME/.config/sunshine"
+
+  sudo mkdir -p "$SUN_CONF" "$SUN_HOME/Library/LaunchAgents"
+  [ -f "$SUN_CONF/apps.json" ] || sudo tee "$SUN_CONF/apps.json" >/dev/null <<'APPS'
+{
+  "env": { "PATH": "$(PATH):$(HOME)/.local/bin" },
+  "apps": [ { "name": "Desktop", "image-path": "desktop.png" } ]
+}
+APPS
+  [ -f "$SUN_CONF/sunshine.conf" ] || sudo touch "$SUN_CONF/sunshine.conf"
+  sudo chown -R "$SUN_USER":staff "$SUN_HOME/.config" "$SUN_HOME/Library/LaunchAgents"
+
+  # Web UI credentials (pairing PINs are entered here)
+  SUNSHINE_WEB_USER="${SUNSHINE_WEB_USER:-admin}"
+  SUNSHINE_WEB_PASSWORD="${SUNSHINE_WEB_PASSWORD:-sunshine}"
+  sudo -u "$SUN_USER" /opt/homebrew/opt/sunshine/bin/sunshine \
+    --creds "$SUNSHINE_WEB_USER" "$SUNSHINE_WEB_PASSWORD" >/dev/null 2>&1 || true
+
+  # TCC: ScreenCapture is checked against the *per-user* TCC.db on macOS 15 —
+  # system-db grants alone still prompt. Grant in both, all identity forms.
+  for DB in "/Library/Application Support/com.apple.TCC/TCC.db" \
+            "$SUN_HOME/Library/Application Support/com.apple.TCC/TCC.db"; do
+    for svc in kTCCServiceScreenCapture kTCCServicePostEvent kTCCServiceAccessibility kTCCServiceSystemPolicyAllFiles; do
+      for client in "/opt/homebrew/bin/sunshine" "/opt/homebrew/opt/sunshine/bin/sunshine"; do
+        sudo sqlite3 "$DB" "INSERT OR REPLACE INTO access (service,client,client_type,auth_value,auth_reason,auth_version,csreq,policy_id,indirect_object_identifier_type,indirect_object_identifier,indirect_object_code_identity,flags,last_modified,pid,pid_version,boot_uuid,last_reminded) VALUES ('$svc','$client',1,2,0,1,NULL,NULL,0,'UNUSED',NULL,0,CAST(strftime('%s','now') AS INTEGER),NULL,NULL,'UNUSED',CAST(strftime('%s','now') AS INTEGER));" 2>/dev/null
+      done
+      sudo sqlite3 "$DB" "INSERT OR REPLACE INTO access (service,client,client_type,auth_value,auth_reason,auth_version,csreq,policy_id,indirect_object_identifier_type,indirect_object_identifier,indirect_object_code_identity,flags,last_modified,pid,pid_version,boot_uuid,last_reminded) VALUES ('$svc','dev.lizardbyte.app.Sunshine',0,2,0,1,NULL,NULL,0,'UNUSED',NULL,0,CAST(strftime('%s','now') AS INTEGER),NULL,NULL,'UNUSED',CAST(strftime('%s','now') AS INTEGER));" 2>/dev/null
+    done
+    sudo chown -R "$SUN_USER":staff "$SUN_HOME/Library/Application Support/com.apple.TCC" 2>/dev/null
+  done
+  sudo killall tccd 2>/dev/null || true
+
+  SUN_PLIST="$SUN_HOME/Library/LaunchAgents/sh.brew.sunshine.plist"
+  sudo tee "$SUN_PLIST" >/dev/null <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>sh.brew.sunshine</string>
+	<key>LimitLoadToSessionType</key>
+	<array>
+		<string>Aqua</string>
+	</array>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/opt/homebrew/opt/sunshine/bin/sunshine</string>
+		<string>$SUN_CONF/sunshine.conf</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>/tmp/sunshine.out.log</string>
+	<key>StandardErrorPath</key>
+	<string>/tmp/sunshine.err.log</string>
+</dict>
+</plist>
+PLIST
+  sudo chown "$SUN_USER":staff "$SUN_PLIST"
+  sudo launchctl bootout "gui/$SUN_UID/sh.brew.sunshine" 2>/dev/null || true
+  sudo launchctl bootstrap "gui/$SUN_UID" "$SUN_PLIST" \
+    && echo "sunshine running under $SUN_USER (gui/$SUN_UID)" \
+    || echo "WARN: sunshine bootstrap failed"
+
+  echo "sunshine web ui   : https://${TS_IP:-<ts-ip>}:47990 ($SUNSHINE_WEB_USER / $SUNSHINE_WEB_PASSWORD)"
+  echo "moonlight         : add PC ${TS_IP:-<ts-ip>}, enter PIN at web UI"
+fi
+
 sec "Summary"
 cat <<EOF
 runner hostname : $(hostname)
@@ -166,6 +258,8 @@ EOF
   [ "$ENABLE_VNC" = "true" ] && echo "| vnc | \`vnc://${TS_IP:-<ts-ip>}:5900\` |"
   [ "$ENABLE_VNC" = "true" ] && echo "| vnc legacy pw | \`${VNC_PASSWORD}\` |"
   [ "$ENABLE_VNC" = "true" ] && echo "| vncuser pw | \`${VNC_USER_PASSWORD}\` |"
+  [ "$ENABLE_SUNSHINE" = "true" ] && echo "| sunshine web ui | \`https://${TS_IP:-<ts-ip>}:47990\` (${SUNSHINE_WEB_USER} / ${SUNSHINE_WEB_PASSWORD}) |"
+  [ "$ENABLE_SUNSHINE" = "true" ] && echo "| moonlight | add PC \`${TS_IP:-<ts-ip>}\`, enter PIN at web UI |"
 } >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
 
 kill "$CAFFEINE_PID" 2>/dev/null || true

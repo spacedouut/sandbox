@@ -14,6 +14,11 @@ Dispatch it from Actions → `macos-vm` → Run workflow. Options:
   `authorized_keys`
 - **enable_vnc**: enables Screen Sharing, sets a legacy VNC password, creates an
   admin `vncuser` (for Apple Screen Sharing auth)
+- **enable_sunshine**: installs [Sunshine](https://app.lizardbyte.dev/Sunshine)
+  via the LizardByte Homebrew tap and runs it as a LaunchAgent under `vncuser`
+  — connect with any Moonlight client for a hardware-H.264/HEVC stream that is
+  *dramatically* faster than VNC (the paravirtualized AVE media engine does the
+  encoding; see Notes)
 - **benchmark**: networkQuality, openssl throughput, disk dd, all-core burn
 
 ### Access
@@ -32,6 +37,17 @@ ssh runner@<100.x.y.z>
 open vnc://<100.x.y.z>:5900   # legacy VNC password or vncuser creds are in the logs
 ```
 
+**Sunshine/Moonlight** (recommended — hardware-encoded, feels native):
+
+1. Moonlight → Add PC → `<100.x.y.z>` → note the 4-digit PIN
+2. Open `https://<100.x.y.z>:47990` (self-signed) → `admin` / `sunshine`
+   (or `SUNSHINE_WEB_PASSWORD` if you set it) → PIN page → pair
+3. Launch **Desktop**
+
+Sunshine streams `vncuser`'s session when it has an Aqua login (keeps the
+`runner` CI identity off the streamed desktop); otherwise it falls back to the
+console user's session.
+
 ### Optional secrets
 
 | secret | purpose |
@@ -39,6 +55,7 @@ open vnc://<100.x.y.z>:5900   # legacy VNC password or vncuser creds are in the 
 | `TS_AUTHKEY` | non-interactive tailnet join |
 | `VNC_PASSWORD` | fixed legacy VNC pw (random per-run otherwise) |
 | `VNC_USER_PASSWORD` | fixed `vncuser` pw (random per-run otherwise) |
+| `SUNSHINE_WEB_PASSWORD` | Sunshine web UI pw (default `sunshine`) |
 
 ## Notes
 
@@ -71,6 +88,15 @@ open vnc://<100.x.y.z>:5900   # legacy VNC password or vncuser creds are in the 
   GPU is deeply stateful, which is why it's only a stub.
 - The `pci106b,1a0x` family is the standard Apple Virtualization.framework
   device set (block, platform, video, USB, fairplay, guest-agent messenger).
+- The missing-GPU thing is a *host-side choice*, not a platform limit:
+  `VZMacGraphicsDeviceConfiguration` + Paravirtualized Graphics give macOS
+  guests real Metal acceleration (WWDC22; Anka enables it by default on ARM,
+  tart works "with no additional setup"). GitHub's runtime just doesn't offer
+  the accelerated device — presumably deliberate on a shared CI fleet.
+- macOS 15 `kTCCServiceScreenCapture` checks the **per-user** `TCC.db`
+  (`~/Library/Application Support/com.apple.TCC/TCC.db`), not just the system
+  one — grants must land in both or daemons still prompt. The setup script
+  writes to both.
 - VNC password is truncated to 8 chars by the legacy auth scheme.
 - ToS note: Actions on public repos is free but meant for "production, testing,
   deployment, or publication" of software. Keep it honest-ish.

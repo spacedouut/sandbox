@@ -26,6 +26,10 @@ on:
         description: "Enable VNC / Screen Sharing"
         type: boolean
         default: true
+      enable_sunshine:
+        description: "Enable Sunshine (Moonlight, hardware H.264/HEVC)"
+        type: boolean
+        default: true
       resolution:
         description: "Display resolution (empty = stock 1024x768)"
         type: choice
@@ -59,8 +63,10 @@ jobs:
           TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
           VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
           VNC_USER_PASSWORD: ${{ secrets.VNC_USER_PASSWORD }}
+          SUNSHINE_WEB_PASSWORD: ${{ secrets.SUNSHINE_WEB_PASSWORD }}
           ENABLE_SSH: ${{ inputs.enable_ssh }}
           ENABLE_VNC: ${{ inputs.enable_vnc }}
+          ENABLE_SUNSHINE: ${{ inputs.enable_sunshine }}
           VNC_RESOLUTION: ${{ inputs.resolution }}
           TS_HOSTNAME: gh-macos-${{ github.run_id }}
         run: bash scripts/setup-access.sh
